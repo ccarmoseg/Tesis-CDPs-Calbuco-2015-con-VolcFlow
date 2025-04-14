@@ -1,0 +1,206 @@
+// Definir área de interés alrededor del Volcán Calbuco
+var geometry = ee.Geometry.Point([-72.614444, -41.326667]).buffer(20000);
+
+// Función para enmascarar nubes
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+  return image.updateMask(mask)
+    .select(['B.*'])
+    .copyProperties(image, ['system:time_start']);
+}
+
+// Obtener imágenes Sentinel-2
+var dataset = ee.ImageCollection('COPERNICUS/S2')
+    .filterBounds(geometry)
+    .filterDate('2015-12-01', '2016-05-31')
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30))
+    .map(maskS2clouds);
+
+// Obtener imagen compuesta
+var image = dataset.median();
+
+// Calcular NBR
+var nbr = image.normalizedDifference(['B8', 'B12']).rename('NBR');
+
+// Calcular NDVI
+var ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI');
+
+// Función para clasificar severidad de quema basada en NBR
+var burnSeverity = nbr.expression(
+  'NBR < -0.25 ? 5 : NBR < -0.1 ? 4 : NBR < 0 ? 3 : NBR < 0.1 ? 2 : NBR < 0.27 ? 1 : 0',
+  {'NBR': nbr}
+);
+
+// Parámetros de visualización para NBR
+var nbrVis = {
+  min: -1,
+  max: 1,
+  palette: [
+    'red',    // Quemado severo (-1.0 a -0.25)
+    'orange', // Quemado moderado-alto (-0.25 a -0.1)
+    'yellow', // Quemado moderado-bajo (-0.1 a 0)
+    'yellowgreen', // Baja severidad (0 a 0.1)
+    'green',  // No quemado (0.1 a 0.27)
+    'darkgreen' // Vegetación muy sana (> 0.27)
+  ]
+};
+
+// Parámetros de visualización para NDVI
+var ndviVis = {
+  min: -1,
+  max: 1,
+  palette: [
+    'red',     // Suelo desnudo/quemado (-1.0 a 0)
+    'yellow',  // Vegetación escasa (0 a 0.2)
+    'yellowgreen', // Vegetación moderada (0.2 a 0.4)
+    'green',   // Vegetación densa (0.4 a 0.6)
+    'darkgreen' // Vegetación muy densa (> 0.6)
+  ]
+};
+
+// Visualización RGB normal
+Map.centerObject(geometry, 11);
+Map.addLayer(image, {
+  bands: ['B4', 'B3', 'B2'],
+  min: 0,
+  max: 3000
+}, 'RGB Natural');
+
+// Añadir capas de índices
+Map.addLayer(nbr, nbrVis, 'NBR');
+Map.addLayer(ndvi, ndviVis, 'NDVI');
+Map.addLayer(burnSeverity.updateMask(burnSeverity.gt(2)), {
+  min: 0,
+  max: 5,
+  palette: ['green', 'yellow', 'orange', 'red', 'purple']
+}, 'Severidad de Quema');
+
+// Crear leyendas para los índices
+var panel = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '8px 15px'
+  }
+});
+
+var title = ui.Label({
+  value: 'Interpretación de Índices',
+  style: {fontWeight: 'bold', fontSize: '16px', margin: '0 0 4px 0', padding: '0'}
+});
+
+// Leyenda NBR
+var nbrLegend = ui.Label({
+  value: '\nNBR (Normalized Burn Ratio):\n' +
+         '< -0.25: Quemado severo\n' +
+         '-0.25 a -0.1: Quemado moderado-alto\n' +
+         '-0.1 a 0: Quemado moderado-bajo\n' +
+         '0 a 0.1: Baja severidad\n' +
+         '0.1 a 0.27: No quemado\n' +
+         '> 0.27: Vegetación sana',
+  style: {fontSize: '12px', margin: '0 0 6px 0'}
+});
+
+// Leyenda NDVI
+var ndviLegend = ui.Label({
+  value: '\nNDVI (Normalized Difference Vegetation Index):\n' +
+         '< 0: Suelo desnudo/quemado\n' +
+         '0 a 0.2: Vegetación escasa\n' +
+         '0.2 a 0.4: Vegetación moderada\n' +
+         '0.4 a 0.6: Vegetación densa\n' +
+         '> 0.6: Vegetación muy densa',
+  style: {fontSize: '12px', margin: '0 0 6px 0'}
+});
+
+panel.add(title);
+panel.add(nbrLegend);
+panel.add(ndviLegend);
+Map.add(panel);
+
+// Añadir funcionalidad para inspeccionar valores
+Map.onClick(function(coords) {
+  var point = ee.Geometry.Point(coords.lon, coords.lat);
+  var sampledPoint = ee.Image.cat(nbr, ndvi).sample(point, 30);
+  
+  sampledPoint.evaluate(function(result) {
+    print('Valores en el punto seleccionado:');
+    print('NBR:', result.features[0].properties.NBR.toFixed(3));
+    print('NDVI:', result.features[0].properties.NDVI.toFixed(3));
+  });
+});
+
+// Definir un área cuadrada de 16km x 16km centrada en el volcán
+var square = ee.Geometry.Point([-72.614444, -41.326667]).buffer(8000, 1);
+
+// Función para exportar capas como GeoTIFF
+function exportLayers() {
+  // Crear imagen multibanda con todas las capas
+  var exportImage = ee.Image.cat([
+    image.select(['B4', 'B3', 'B2']).rename(['red', 'green', 'blue']),
+    nbr.rename('NBR'),
+    ndvi.rename('NDVI'),
+    burnSeverity.rename('burn_severity')
+  ]).clip(square);
+  
+  // Exportar RGB Natural
+  Export.image.toDrive({
+    image: exportImage.select(['red', 'green', 'blue']),
+    description: 'Calbuco_RGB_Natural',
+    folder: 'Calbuco_Analysis',
+    scale: 10,
+    region: square,
+    crs: 'EPSG:4326',
+    maxPixels: 1e10,
+    fileFormat: 'GeoTIFF'
+  });
+  
+  // Exportar NBR
+  Export.image.toDrive({
+    image: exportImage.select('NBR'),
+    description: 'Calbuco_NBR',
+    folder: 'Calbuco_Analysis',
+    scale: 20,
+    region: square,
+    crs: 'EPSG:4326',
+    maxPixels: 1e10,
+    fileFormat: 'GeoTIFF'
+  });
+  
+  // Exportar NDVI
+  Export.image.toDrive({
+    image: exportImage.select('NDVI'),
+    description: 'Calbuco_NDVI',
+    folder: 'Calbuco_Analysis',
+    scale: 10,
+    region: square,
+    crs: 'EPSG:4326',
+    maxPixels: 1e10,
+    fileFormat: 'GeoTIFF'
+  });
+  
+  // Exportar Severidad de Quema
+  Export.image.toDrive({
+    image: exportImage.select('burn_severity'),
+    description: 'Calbuco_Burn_Severity',
+    folder: 'Calbuco_Analysis',
+    scale: 20,
+    region: square,
+    crs: 'EPSG:4326',
+    maxPixels: 1e10,
+    fileFormat: 'GeoTIFF'
+  });
+}
+
+// Crear un botón para iniciar la exportación
+var exportButton = ui.Button({
+  label: 'Exportar Capas como GeoTIFF',
+  onClick: exportLayers,
+  style: {
+    position: 'top-right'
+  }
+});
+
+Map.add(exportButton);
