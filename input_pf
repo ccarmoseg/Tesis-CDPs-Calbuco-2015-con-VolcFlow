@@ -50,7 +50,7 @@ bound_cond = 'h2(:,1)=0; h2(:,end)=0; h2(1,:)=0; h2(end,:)=0;';
 origin = imread('source.tif'); % Load a black-and-white image where source zones are in black
 
 % Define source conditions in a separate file
-source = 'source_cond_PF_v;';
+source = 'source_cond;';
 
 % Initial velocities
 u_xx = z(1:nrow, 1:ncol-1)*0;
