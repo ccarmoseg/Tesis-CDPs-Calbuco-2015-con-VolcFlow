@@ -1,0 +1,32 @@
+% Script to save VolcFlow results as .mat and .tiff files
+
+% Get the current directory
+current_dir = pwd;
+
+% Save 'h' as a .mat file
+save(fullfile(current_dir, 'volcflow_results.mat'), 'h');
+disp('Results saved as volcflow_results.mat');
+
+% Convert 'h' to a georeferenced tiff
+% First, we need to ensure we have the correct geospatial information
+% This assumes you have this information from your original DEM
+% If not, you'll need to modify this part accordingly
+
+% Load the original DEM to get spatial reference info
+load('Copernicus_30m_Calbuco_2015.mat', 'z');
+
+% Check if the sizes match
+if ~isequal(size(h), size(z))
+    error('The sizes of h and the original DEM do not match. Cannot create georeferenced tiff.');
+end
+
+% Create a spatial referencing object
+% This assumes your DEM is in UTM coordinates. Modify as needed.
+R = maprefcells([min(y) max(y)], [min(x) max(x)], size(z));
+
+% Write the georeferenced tiff
+geotiffwrite(fullfile(current_dir, 'volcflow_results.tif'), h, R);
+disp('Results saved as volcflow_results.tif');
+
+% Display confirmation message
+disp('Results have been saved successfully in both .mat and .tif formats.');
