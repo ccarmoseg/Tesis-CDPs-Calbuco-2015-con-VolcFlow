@@ -1,0 +1,39 @@
+% Define the source conditions for pyroclastic flows
+if total_volume_emitted < V
+    dh = h*0; % dh is a matrix with the same size as h
+    source_rate = 0.5; % m/s, adjust as needed
+    dh(origin < 100) = source_rate * dt;
+    
+    % Calculate the volume emitted in this time step
+    volume_emitted = sum(sum(dh)) * dx_horiz * dy_horiz;
+    
+    % Check if adding this volume would exceed the total volume
+    if total_volume_emitted + volume_emitted > V
+        scale_factor = (V - total_volume_emitted) / volume_emitted;
+        dh = dh * scale_factor;
+    end
+    
+    % Update the total emitted volume
+    total_volume_emitted = total_volume_emitted + sum(sum(dh)) * dx_horiz * dy_horiz;
+    
+    % Calculate the variation of thickness at the edges
+    dhmx = (dh(:, 2:ncol) + dh(:,1:ncol-1)) / 2;
+    dhmy = (dh(2:nrow, :) + dh(1:nrow-1,:)) / 2;
+    
+    % New velocity at the source calculated by mass conservation
+    u_xx(dhmx>0) = (u_xx(dhmx>0).*hmx(dhmx>0) + 0)./(hmx(dhmx>0)+dhmx(dhmx>0));
+    u_xy(dhmx>0) = (u_xy(dhmx>0).*hmx(dhmx>0) + 0)./(hmx(dhmx>0)+dhmx(dhmx>0));
+    u_yx(dhmy>0) = (u_yx(dhmy>0).*hmy(dhmy>0) + 0)./(hmy(dhmy>0)+dhmy(dhmy>0));
+    u_yy(dhmy>0) = (u_yy(dhmy>0).*hmy(dhmy>0) + 0)./(hmy(dhmy>0)+dhmy(dhmy>0));
+    
+    % New thickness at the source
+    h = h + dh;
+end
+
+% Add any additional conditions specific to pyroclastic flows here
+% For example, you might want to add momentum to simulate the initial blast:
+if t < 10 % For the first 10 seconds of the simulation
+    initial_velocity = 0; % m/s, adjust as needed
+    u_xx(origin < 100) = initial_velocity;
+    u_yy(origin < 100) = initial_velocity;
+end
