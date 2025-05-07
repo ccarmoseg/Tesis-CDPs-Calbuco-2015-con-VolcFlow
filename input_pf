@@ -1,0 +1,66 @@
+%Load of the topography
+load('Copernicus_30m_Calbuco_2015.mat')
+[nrow, ncol] = size(z);
+h=z*0; %initial thickness = 0
+
+%==============================================================
+% PARAMETERS
+dt=1;              %time step
+tstep_adjust = 1;  %0 = no automatic change of the time step during calculation
+
+dtplot =    10;
+tmax = 600;  
+g  =     9.81;
+dx_horiz = 30;
+dy_horiz = 30;
+
+coef_u2 = 0.01;
+rho = 1500 ;
+%yield_strength = ;    
+
+% Retarding stress
+X_Rstress = ''; % Retarding stress in the x direction (Pa)
+Y_Rstress = ''; % Retarding stress in the y direction (Pa)
+a_Restress_xx = 6500; % Value for Retarding stress (Pa)
+a_weight_xx = rho * g * h; % Driving acceleration due to gravity 
+
+% Initialize velocities with correct dimensions
+u_xx = zeros(nrow, ncol-1); % Initialize with zeros
+u_xy = zeros(nrow, ncol-1); % Initialize with zeros
+u_yy = zeros(nrow-1, ncol); % Initialize with zeros
+u_yx = zeros(nrow-1, ncol); % Initialize with zeros
+
+% Update velocity considering retarding stress
+u3_xx = u_xx + (a_Restress_xx + a_weight_xx(:, 1:ncol-1)) * dt;
+
+% Velocity at t-dt
+u2_xx = u_xx + (a_weight_xx(:, 1:ncol-1)) * dt;
+% Total volume
+V = 3e7; % Total volume in m^3
+
+%==============================================================
+erase_dat=1
+representation = 'repr_PF;';
+f_avi  = 'PF_simulation.avi'; 
+f_data = 'PF_simulation.dat';
+
+bound_cond = 'h2(:,1)=0; h2(:,end)=0; h2(1,:)=0; h2(end,:)=0;';
+
+% Load the source image
+origin = imread('source.tif'); % Load a black-and-white image where source zones are in black
+
+% Define source conditions in a separate file
+source = 'source_cond_PF_v;';
+
+% Initial velocities
+u_xx = z(1:nrow, 1:ncol-1)*0;
+u_xy = z(1:nrow, 1:ncol-1)*0;
+u_yy = z(1:nrow-1, 1:ncol)*0;
+u_yx = z(1:nrow-1, 1:ncol)*0;
+
+% Create x and y vectors for plotting
+x = [1:ncol]*dx_horiz;
+y = [1:nrow]*dy_horiz;
+
+t=0; % Initialize time
+total_volume_emitted = 0; % Initialize total emitted volume
